@@ -19,10 +19,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "scheduler.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +44,20 @@ I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-
+/* Test counters: each TIM2 tick is 10 ms. */
+volatile uint32_t test_tick_10ms = 0U;
+volatile uint32_t test_count_500 = 0U;
+volatile uint32_t test_count_1000 = 0U;
+volatile uint32_t test_count_700 = 0U;
+volatile uint32_t test_oneshot_count = 0U;
+volatile uint32_t test_delete_count = 0U;
+volatile uint32_t test_delete_ok = 0U;
+volatile uint32_t test_last_500_tick = 0U;
+volatile uint32_t test_last_1000_tick = 0U;
+volatile uint32_t test_last_700_tick = 0U;
+volatile uint32_t test_oneshot_tick = 0U;
+volatile uint32_t test_delete_tick = 0U;
+static uint32_t test_id_700 = NO_TASK_ID;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,7 +71,36 @@ static void MX_TIM2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void Test_500ms(void)
+{
+  ++test_count_500;
+  test_last_500_tick = test_tick_10ms;
+}
 
+static void Test_1000ms(void)
+{
+  ++test_count_1000;
+  test_last_1000_tick = test_tick_10ms;
+}
+
+static void Test_700ms(void)
+{
+  ++test_count_700;
+  test_last_700_tick = test_tick_10ms;
+}
+
+static void Test_OneShot(void)
+{
+  ++test_oneshot_count;
+  test_oneshot_tick = test_tick_10ms;
+}
+
+static void Test_Delete700(void)
+{
+  ++test_delete_count;
+  test_delete_tick = test_tick_10ms;
+  test_delete_ok = SCH_Delete_Task(test_id_700);
+}
 /* USER CODE END 0 */
 
 /**
@@ -93,8 +134,27 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  /* Register tasks before enabling the TIM2 interrupt. */
+  SCH_Init();
 
-  /* USER CODE END 2 */
+  const uint32_t id500 = SCH_Add_Task(Test_500ms, 50U, 50U);
+  const uint32_t id1000 = SCH_Add_Task(Test_1000ms, 100U, 100U);
+  const uint32_t idOneShot = SCH_Add_Task(Test_OneShot, 120U, 0U);
+  test_id_700 = SCH_Add_Task(Test_700ms, 70U, 70U);
+  const uint32_t idDelete = SCH_Add_Task(Test_Delete700, 230U, 0U);
+
+  if (id500 == NO_TASK_ID || id1000 == NO_TASK_ID ||
+      idOneShot == NO_TASK_ID || test_id_700 == NO_TASK_ID ||
+      idDelete == NO_TASK_ID)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+/* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -103,6 +163,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    SCH_Dispatch_Tasks();
   }
   /* USER CODE END 3 */
 }
@@ -272,7 +333,14 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2)
+  {
+    ++test_tick_10ms;
+    SCH_Update();
+  }
+}
 /* USER CODE END 4 */
 
 /**
