@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "scheduler.h"
+#include "software_timer.h"
+#include "global.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,6 +60,19 @@ volatile uint32_t test_last_700_tick = 0U;
 volatile uint32_t test_oneshot_tick = 0U;
 volatile uint32_t test_delete_tick = 0U;
 static uint32_t test_id_700 = NO_TASK_ID;
+
+/* ===== Software Timer Monitoring ===== */
+
+volatile uint32_t sw_first_expiry_tick[4] = {0};
+
+volatile uint32_t sw_blink_count = 0;
+volatile uint32_t sw_last_blink_tick = 0;
+
+volatile uint32_t sw_cancel_tick = 0;
+volatile uint32_t sw_msg_flag_after_cancel = 0;
+
+volatile uint32_t sw_observer_count = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -101,6 +116,68 @@ static void Test_Delete700(void)
   test_delete_tick = test_tick_10ms;
   test_delete_ok = SCH_Delete_Task(test_id_700);
 }
+
+/* Observe software timer expiration */
+static void Test_SW_TimerObserver(void)
+{
+    sw_observer_count++;
+
+    if (timer_flag[TIMER_PHASE] &&
+        sw_first_expiry_tick[TIMER_PHASE] == 0U)
+    {
+        sw_first_expiry_tick[TIMER_PHASE] =
+            test_tick_10ms;
+    }
+
+    if (timer_flag[TIMER_1SEC] &&
+        sw_first_expiry_tick[TIMER_1SEC] == 0U)
+    {
+        sw_first_expiry_tick[TIMER_1SEC] =
+            test_tick_10ms;
+    }
+
+    /* Test repeated 250 ms timer */
+    if (timer_flag[TIMER_BLINK])
+    {
+        if (sw_first_expiry_tick[TIMER_BLINK] == 0U)
+        {
+            sw_first_expiry_tick[TIMER_BLINK] =
+                test_tick_10ms;
+        }
+
+        sw_blink_count++;
+        sw_last_blink_tick = test_tick_10ms;
+
+        if (sw_blink_count < 4U)
+        {
+            setTimer(TIMER_BLINK, 250);
+        }
+        else
+        {
+            clearTimer(TIMER_BLINK);
+        }
+    }
+
+    if (timer_flag[TIMER_MSG] &&
+        sw_first_expiry_tick[TIMER_MSG] == 0U)
+    {
+        sw_first_expiry_tick[TIMER_MSG] =
+            test_tick_10ms;
+    }
+}
+
+
+/* Cancel message timer at 1500 ms */
+static void Test_SW_CancelMsg(void)
+{
+    sw_cancel_tick = test_tick_10ms;
+
+    clearTimer(TIMER_MSG);
+
+    sw_msg_flag_after_cancel =
+        timer_flag[TIMER_MSG];
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -149,6 +226,49 @@ int main(void)
   {
     Error_Handler();
   }
+
+  /* ===== Register Software Timer Tasks ===== */
+
+  /* Run software timers every 10 ms */
+  uint32_t idSwTimer = SCH_Add_Task(
+      timerRun,
+      0U,
+      1U
+  );
+
+  /* Observe expiration flags every 10 ms */
+  uint32_t idSwObserver = SCH_Add_Task(
+      Test_SW_TimerObserver,
+      1U,
+      1U
+  );
+
+  /* Cancel message timer at 1500 ms */
+  uint32_t idSwCancel = SCH_Add_Task(
+      Test_SW_CancelMsg,
+      150U,
+      0U
+  );
+
+  /* Verify task registration */
+  if (idSwTimer == NO_TASK_ID ||
+      idSwObserver == NO_TASK_ID ||
+      idSwCancel == NO_TASK_ID)
+  {
+      Error_Handler();
+  }
+
+  /*
+   * Execute the initial delay-0 timerRun callback
+   * before starting any software timer.
+   */
+  SCH_Dispatch_Tasks();
+
+  /* Initialize four software timers */
+  setTimer(TIMER_PHASE, 1200);
+  setTimer(TIMER_1SEC, 1000);
+  setTimer(TIMER_BLINK, 250);
+  setTimer(TIMER_MSG, 3000);
 
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
